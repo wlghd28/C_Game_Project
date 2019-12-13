@@ -21,6 +21,7 @@ typedef struct
 }Player; // 플레이어 사각형
 
 Star star[15];
+Star star2[15];
 Player player;
 int speed; // 게임속도
 int score = 0; // 점수
@@ -62,10 +63,10 @@ void PrintTitle() {
 	gotoxy(x, y + 12); printf("   P   : Pause");
 	gotoxy(x, y + 14); printf("  ESC  : Quit");
 	while (1) {
-		if (kbhit())
+		if (_kbhit())
 			break;
 	}
-	while (kbhit()) getch(); //버퍼에 기록된 키값을 버림
+	while (_kbhit()) _getch(); //버퍼에 기록된 키값을 버림
 }
 // 게임을 시작시키는 함수.
 void GameStart() {
@@ -75,6 +76,9 @@ void GameStart() {
 		star[i].state = FALSE;
 		star[i].x = i + 3;
 		star[i].y = 2;
+		star2[i].state = FALSE;
+		star2[i].x = i + 3;
+		star2[i].y = 2;
 	}
 	player.x = WIDTH / 2;
 	gotoxy(player.x, HEIGHT); printf("■");
@@ -112,7 +116,7 @@ void GameOver() {
 	gotoxy(x, y + 7); printf("▤                              ▤");
 	gotoxy(x, y + 8); printf("▤                              ▤");
 	gotoxy(x, y + 9); printf("▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤");
-	while (kbhit()) getch();
+	while (_kbhit()) _getch();
 	gotoxy(0, 0);
 	exit(0);
 }
@@ -129,10 +133,10 @@ void Pause() {
 	gotoxy(x, y + 6); printf("▤                             ▤");
 	gotoxy(x, y + 7); printf("▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤");
 
-	while (kbhit()) getch(); //버퍼에 기록된 키값을 버림
+	while (_kbhit()) _getch(); //버퍼에 기록된 키값을 버림
 
 	while (1) {
-		if (kbhit())
+		if (_kbhit())
 			break;
 	}
 	GameStart();
@@ -170,28 +174,46 @@ void MovePlayer() {
 }
 void DropStar() {
 	int starindex = rand() % 15;
+	int starindex2 = rand() % 15;
 	star[starindex].state = TRUE;
+	star2[starindex2].state = TRUE;
 	for (int i = 0; i < 15; i++) {
 		if (star[i].state) {
 			gotoxy(star[i].x, star[i].y);  printf(" ");
 			star[i].y++;
 			gotoxy(star[i].x, star[i].y);  printf("★");
 		}
+		if (star2[i].state) {
+			gotoxy(star2[i].x, star2[i].y);  printf(" ");
+			star2[i].y++;
+			gotoxy(star2[i].x, star2[i].y);  printf("★");
+		}
 	}
 	for (int i = 0; i < 15; i++) {
 		if (star[i].y == 21) {
 			score += 100;
-			gotoxy(star[i].x, star[i].y);  printf("▩");
+			gotoxy(star[i].x, star[i].y);  printf("▩");		
 			star[i].state = FALSE;
 			star[i].y = 2;
 			if (star[i].x == player.x)
+				GameOver();
+		}
+		if (star2[i].y == 21) {
+			score += 100;
+			gotoxy(star2[i].x, star2[i].y);  printf("▩");
+			star2[i].state = FALSE;
+			star2[i].y = 2;
+			if (star2[i].x == player.x)
 				GameOver();
 		}
 	}
 }
 void CrashPlayer() {
 	for (int i = 0; i < 15; i++) {
-		if (star[i].x == player.x && star[i].y == 20) {
+		if ((star[i].x == player.x && star[i].y == 20)) {
+			GameOver();
+		}
+		if ((star2[i].x == player.x && star2[i].y == 20)) {
 			GameOver();
 		}
 	}
@@ -234,10 +256,10 @@ void NextStage() {
 	gotoxy(x, y + 6); printf("▤                                ▤");
 	gotoxy(x, y + 7); printf("▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤");
 
-	while (kbhit()) getch(); //버퍼에 기록된 키값을 버림
+	while (_kbhit()) _getch(); //버퍼에 기록된 키값을 버림
 
 	while (1) {
-		if (kbhit())
+		if (_kbhit())
 			break;
 	}
 	GameStart();
