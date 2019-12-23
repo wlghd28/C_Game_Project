@@ -1,0 +1,325 @@
+#include <stdio.h>
+#include <windows.h>
+#include <stdlib.h>
+#include <conio.h>
+#include<time.h>
+
+#define WIDTH 30
+#define HEIGHT 30
+#define p 112 // 일시정지
+#define P 80 // 일시정지
+
+typedef enum { NOCURSOR, SOLIDCURSOR, NORMALCURSOR } CURSOR_TYPE; //커서숨기는 함수에 사용되는 열거형 
+void gotoxy(short x, short y); // 커서 이동하는 함수.
+void setcursortype(CURSOR_TYPE c); // 커서 없애는 함수.
+int isKeyDown(int key); // 키보드의 입력값을 리턴하는 함수.
+
+typedef struct
+{
+	int x;
+}Player; // 플레이어 막대
+typedef struct
+{
+	int x;
+	int y;
+	int state;
+	int up_down; // 0 : 위로 움직임, 1 : 아래로 움직임
+	int left_right; // 0 : 왼쪽으로 움직임, 1 : 오른쪽으로 움직임
+}Ball; // 벽돌을 깨는데 사용할 공
+typedef struct
+{
+	int x;
+	int y;
+	bool state;
+}Block; // 벽돌
+// 화면이 그려질 시작 지점 설정
+int x, y;
+int score = 0; // 플레이어 점수.
+int stage = 1; // 현재 스테이지.
+Player player; // 플레이어
+Ball ball; // 벽돌을 깨는데 사용할 공
+Block blocks[100]; // 부셔야할 벽돌들.
+
+void DrawTitle(); // 타이틀화면 출력.
+void DrawBoard(); // 게임화면 출력.
+void MovePlayer(); // 플레이어를 움직이는 함수.
+void DrawBlock(); // 벽돌을 출력하는 함수.
+void DrawBall(); // 공을 움직이는 함수.
+void GameClear(); // 게임 클리어
+void Pause(); // 일시정지
+void GameOver(); // 게임종료
+int main(void)
+{
+	int index = 0;
+	x = 5;
+	y = 5;
+	setcursortype(NOCURSOR); //커서 없앰 
+	DrawTitle(); // 타이틀화면 출력
+	DrawBoard(); // 게임 메인 보드 출력
+	player.x = x + WIDTH / 2 - 4;
+	gotoxy(player.x, y + HEIGHT - 5); printf("■■■■■■■■■");
+	ball.x = x + WIDTH / 2;
+	ball.y = y + HEIGHT - 5 - 1;
+	gotoxy(ball.x, ball.y); printf("●");
+	// 첫 블럭 셋팅
+	for (int i = 3; i < WIDTH - 15; i++) {
+		for (int j = 3; j < HEIGHT - 2; j++) {
+			blocks[index].x = x + j;
+			blocks[index].y = y + i;
+			index++;
+			if (index == 100)
+				break;
+		}
+	}
+	for (int i = 0; i < 100; i++) {
+		if (blocks[i].state == FALSE)
+			gotoxy(blocks[i].x, blocks[i].y);  printf("▣");
+	}
+	// 게임을 시작하기 위해 스페이스바를 누른다.
+	while (1) {
+		if (isKeyDown(VK_SPACE)) {
+			int start = rand() % 2;
+			ball.up_down = 0; // 처음 공의 방향은 항상 위쪽
+			ball.left_right = start; // 왼쪽 or 오른쪽 방향 랜덤으로 시작
+			break;
+		}
+	}
+	while (_kbhit()) _getch(); //버퍼에 기록된 키값을 버림
+	// 게임 시작
+	while (1) {
+		Sleep(50); 
+		DrawBall(); // 공을 움직이는 함수.
+		DrawBlock(); // 벽돌 상태를 갱신하는 함수.
+		MovePlayer(); // 플레이어를 움직이는 함수.
+
+		// 스코어 갱신
+		gotoxy(x + WIDTH + 5, y + 9); printf("Score : %d", score);
+		// p나 P 입력시 일시 정지
+		if (isKeyDown(p) | isKeyDown(P)) {
+			Pause();
+		}
+		// esc 누를시 게임 종료
+		if (isKeyDown(VK_ESCAPE)) {
+			GameOver();
+		}
+	} 
+	return 0;
+}
+
+// 타이틀화면 출력.
+void DrawTitle() {
+	x = 5; //타이틀화면이 표시되는 x좌표 
+	y = 5; //타이틀화면이 표시되는 y좌표 
+	gotoxy(x, y + 0); printf("■□□□■■■□□■■□□■■"); Sleep(100);
+	gotoxy(x, y + 1); printf("■■■□  ■□□    ■■□□■"); Sleep(100);
+	gotoxy(x, y + 2); printf("□□□■              □■  ■"); Sleep(100);
+	gotoxy(x, y + 3); printf("■■□■■  □  ■  □□■□□"); Sleep(100);
+	gotoxy(x, y + 4); printf("■■  ■□□□■■■□■■□□"); Sleep(100);
+	gotoxy(x + 5, y + 2); printf("벽돌깨기 게임"); Sleep(100);
+	gotoxy(x, y + 7); printf("Please Enter Any Key to Start..");
+	gotoxy(x, y + 10); printf("◁  ▷ : Left / Right");
+	gotoxy(x, y + 12); printf("   P   : Pause");
+	gotoxy(x, y + 14); printf("  ESC  : Quit");
+	while (1) {
+		if (_kbhit())
+			break;
+	}
+	while (_kbhit()) _getch(); //버퍼에 기록된 키값을 버림
+}
+// 게임화면을 출력하는 함수.
+void DrawBoard() {
+	system("cls");
+	x = 5;
+	y = 5;
+
+	for (int i = 0; i < WIDTH; i++) {
+		gotoxy(x + i, y); printf("▤");
+		gotoxy(x + i, y + HEIGHT - 1); printf("▤");
+	}
+	for (int i = 0; i < HEIGHT; i++) {
+		gotoxy(x, y + i); printf("▤");
+		gotoxy(x + WIDTH, y + i); printf("▤");
+	}
+
+	gotoxy(x + WIDTH + 5, y + 7); printf("Stage : %d", stage);
+	gotoxy(x + WIDTH + 5, y + 9); printf("Score : %d", score);
+	gotoxy(x + WIDTH + 5, y + 11); printf("Start : SpaceBar");
+	gotoxy(x + WIDTH + 5, y + 13); printf("◁  ▷ : Left / Right");
+	gotoxy(x + WIDTH + 5, y + 15); printf("   P   : Pause");
+	gotoxy(x + WIDTH + 5, y + 17); printf("  ESC  : Quit");
+}
+// 플레이어를 움직인다.
+void MovePlayer() {
+	if (isKeyDown(VK_LEFT) && player.x > x + 1) {
+		gotoxy(player.x + 8, HEIGHT);  printf(" ");
+		player.x--;
+		gotoxy(player.x, HEIGHT);  printf("■■■■■■■■■");
+	}
+	if (isKeyDown(VK_RIGHT) && player.x < WIDTH - 4) {
+		gotoxy(player.x, HEIGHT);  printf(" ");
+		player.x++;
+		gotoxy(player.x, HEIGHT);  printf("■■■■■■■■■");
+	}
+}
+// 벽돌 상태 갱신
+void DrawBlock() {
+	x = 5;
+	y = 5;
+	for (int i = 0; i < 100; i++) {
+		if (blocks[i].state == FALSE) {
+			if (blocks[i].x == ball.x + 1 && blocks[i].y == ball.y && ball.left_right == 1) {
+				gotoxy(blocks[i].x, blocks[i].y);  printf(" ");
+				ball.left_right = 0; // 공이 오른쪽 방향으로 오다가 블럭에 부딪힌 경우
+				blocks[i].state = TRUE;
+				score += 100;
+			}
+			if (blocks[i].x == ball.x - 1 && blocks[i].y == ball.y && ball.left_right == 0) {
+				gotoxy(blocks[i].x, blocks[i].y);  printf(" ");
+				ball.left_right = 1; // 공이 왼쪽 방향으로 오다가 블럭에 부딪힌 경우
+				blocks[i].state = TRUE;
+				score += 100;
+			}
+			if (blocks[i].x == ball.x && blocks[i].y == ball.y - 1 && ball.up_down == 0) {
+				gotoxy(blocks[i].x, blocks[i].y);  printf(" ");
+				ball.up_down = 1; // 공이 위쪽 방향으로 오다가 블럭에 부딪힌 경우
+				blocks[i].state = TRUE;
+				score += 100;
+			}
+			if (blocks[i].x == ball.x && blocks[i].y == ball.y + 1 && ball.up_down == 1) {
+				gotoxy(blocks[i].x, blocks[i].y);  printf(" ");
+				ball.up_down = 0; // 공이 아래쪽 방향으로 오다가 블럭에 부딪힌 경우
+				blocks[i].state = TRUE;
+				score += 100;
+			}
+		}
+	}
+}
+// 공을 움직인다.
+void DrawBall() {
+	gotoxy(ball.x, ball.y);  printf(" "); // 현재공의 위치를 지운다
+
+	if (ball.up_down == 0) {
+		if(ball.y - 1 == y){
+			// 공이 천장에 닿을 시
+			ball.up_down = 1; // 아래 방향으로 전환
+			ball.y++;
+		}else
+			ball.y--;
+	}
+	if (ball.up_down == 1) {
+		if (ball.y + 1 == y + HEIGHT - 1)
+			GameOver();
+		if (ball.y + 1 == y + HEIGHT - 5 && (ball.x >= player.x && ball.x <= player.x + 8)) {
+			// 공이 플레이어에 닿을 시
+			ball.up_down = 0; // 윗 방향으로 전환
+			ball.y--;
+		}
+		else
+			ball.y++;
+	}
+	if (ball.left_right == 0) {
+		if (ball.x - 1 == x) {
+			// 공이 왼쪽 벽에 닿을 시
+			ball.left_right = 1; // 오른쪽 방향으로 전환
+			ball.x++;
+		}else
+			ball.x--;
+	}
+	if (ball.left_right == 1) {
+		if (ball.x + 1 == x + WIDTH) {
+			// 공이 오른쪽 벽에 닿을 시
+			ball.left_right= 0; // 왼쪽 방향으로 전환
+			ball.x--;
+		}else
+			ball.x++;
+	}
+	gotoxy(ball.x, ball.y); printf("●"); // 옮겨진 공의 위치를 출력
+}
+// 게임 클리어
+void GameClear() {
+	x = 5;
+	y = 5;
+	system("cls");
+	gotoxy(x, y + 0); printf("▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤"); //게임클리어 메세지 
+	gotoxy(x, y + 1); printf("▤                              ▤");
+	gotoxy(x, y + 2); printf("▤  +-----------------------+   ▤");
+	gotoxy(x, y + 3); printf("▤  |  G A M E  C L E A R!! |   ▤");
+	gotoxy(x, y + 4); printf("▤  +-----------------------+   ▤");
+	gotoxy(x, y + 5); printf("▤                              ▤");
+	gotoxy(x, y + 6); printf("▤  YOUR SCORE: %6d          ▤", score);
+	gotoxy(x, y + 7); printf("▤                              ▤");
+	gotoxy(x, y + 8); printf("▤                              ▤");
+	gotoxy(x, y + 9); printf("▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤");
+	while (1) {
+		if (isKeyDown(VK_ESCAPE)) {
+			exit(0);
+		}
+	}
+}
+// 일시정지
+void Pause() {
+	x = 5;
+	y = 5;
+	gotoxy(x + WIDTH + 5, y + 7); printf("PAUSE!!!");
+	while (_kbhit()) _getch(); //버퍼에 기록된 키값을 버림
+
+	while (1) {
+		if (_kbhit()) {
+			gotoxy(x + WIDTH + 5, y + 7); printf("         ");
+			break;
+		}
+	}
+}
+// 게임종료
+void GameOver() {
+	x = 5;
+	y = 5;
+	system("cls");
+	gotoxy(x, y + 0); printf("▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤"); //게임오버 메세지 
+	gotoxy(x, y + 1); printf("▤                              ▤");
+	gotoxy(x, y + 2); printf("▤  +-----------------------+   ▤");
+	gotoxy(x, y + 3); printf("▤  |  G A M E  O V E R..   |   ▤");
+	gotoxy(x, y + 4); printf("▤  +-----------------------+   ▤");
+	gotoxy(x, y + 5); printf("▤                              ▤");
+	gotoxy(x, y + 6); printf("▤  YOUR SCORE: %6d          ▤", score);
+	gotoxy(x, y + 7); printf("▤                              ▤");
+	gotoxy(x, y + 8); printf("▤                              ▤");
+	gotoxy(x, y + 9); printf("▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤▤");
+	while (1) {
+		if (isKeyDown(VK_ESCAPE)) {
+			exit(0);
+		}
+	}
+}
+// 커서를 움직이는 함수.
+void gotoxy(short x, short y)
+{
+	//COORD : window.h에 있는 구조체, {SHORT x, SHORT y} 로 구성되어 있다.
+	COORD pos = { x * 2, y };
+	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), pos);
+}
+//커서숨기는 함수
+void setcursortype(CURSOR_TYPE c) {
+	CONSOLE_CURSOR_INFO CurInfo;
+
+	switch (c) {
+	case NOCURSOR:
+		CurInfo.dwSize = 1;
+		CurInfo.bVisible = FALSE;
+		break;
+	case SOLIDCURSOR:
+		CurInfo.dwSize = 100;
+		CurInfo.bVisible = TRUE;
+		break;
+	case NORMALCURSOR:
+		CurInfo.dwSize = 20;
+		CurInfo.bVisible = TRUE;
+		break;
+	}
+	SetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &CurInfo);
+}
+// 키 입력시 값 반환하는 함수.
+int isKeyDown(int key)
+{
+	return ((GetAsyncKeyState(key) & 0x8000) != 0);
+}
