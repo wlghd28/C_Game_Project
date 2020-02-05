@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <conio.h>
 #include<time.h>
-
+// !주의 BMP 파일은 이미지데이터가 거꾸로 들어가있다.
 #pragma warning(disable : 4996)
 #pragma pack(push, 1)
 struct Bitmapfileheader
@@ -34,12 +34,14 @@ const int up_end = 0;
 const int down_end = 900;
 const int stone_count = 20; // 떨어지는 돌의 개수
 
-int stone_width;
-int stone_height;
-int player_width;
-int player_height;
-int item_width;
-int item_height;
+int stone_width = 0;
+int stone_height = 0;
+int player_width = 0;
+int player_height = 0;
+int item_width = 0;
+int item_height = 0;
+int bg_width = 0;
+int bg_height = 0;
 
 int score = -2000; // 점수(처음 속도가 너무빨라서 점수 조절)
 int item_score = 0; // 아이템을 먹은 개수
@@ -71,6 +73,7 @@ typedef struct
 	int acceleration = 0; // 플레이어의 가속도
 }Player; // 플레이어
 
+COLORREF **color; // 장애물과 플레이어의 잔상을 처리하기 위해 배경화면 비트맵 정보를 담아놓을 메모리.
 Player player; // 플레이어는 한명이므로 변수 하나만 선언.
 STONE* stones; // 떨어지는 돌의 메모리를 동적할당 할 포인터 변수.
 ITEM item; // 아이템은 한개씩 떨어지므로 변수 하나만 선언.
@@ -100,25 +103,27 @@ void GameOver(); // 게임을 종료하는 함수.
 
 int main(void) {
 	setcursortype(NOCURSOR); //커서 없앰
-	DrawTitle();
-	DrawBackground();
-	DrawPlayer(start_x, start_y);
 
+	stones = (STONE*)malloc(sizeof(STONE) * stone_count); // 떨어지는 돌을 메모리 할당
 	// 플레이어의 좌표위치 및 상태 초기화.
 	player.x = start_x;
 	player.y = start_y;
 	player.motion = 0;
 	player.stop = 0;
-
-	stones = (STONE*)malloc(sizeof(STONE) * stone_count); // 떨어지는 돌을 메모리 할당
 	// 돌들의 상태와 좌표위치 초기화.
 	for (int i = 0; i < stone_count; i++) {
 		stones[i].state = FALSE;
 		stones[i].x = left_end + 60 * i;
 		stones[i].y = 0;
+		stones[i].acceleration = 0;
 	}
+	// 아이템 y좌표 초기화.
 	item.y = 0;
 
+	// 화면출력 시작
+	DrawTitle();
+	DrawBackground();
+	DrawPlayer(start_x, start_y);
 	// 무한 반복을 시키며 게임 실행
 	while (1) {
 		GameScore();
@@ -133,7 +138,15 @@ int main(void) {
 		}
 	}
 
-	free(stones);
+	// 장애물의 정보를 저장해놓은 메모리 해제
+	free(stones); 
+	// 배경화면의 비트맵 정보를 저장해놓은 메모리 해제
+	for (int i = 0; i < bg_width; i++)
+	{
+		free(color[i]);
+	}
+	free(color);
+
 	return 0;
 }
 void DrawTitle() 
@@ -161,8 +174,7 @@ void DrawBackground()
 	HDC hdc;
 	hdc = GetDC(NULL);
 	FILE * fp;
-
-	fp = fopen("ice_ground.bmp", "rb");
+	fp = fopen(/*"ice_ground.bmp"*/"background.bmp", "rb");
 
 	if (fp == NULL)
 	{
@@ -173,16 +185,27 @@ void DrawBackground()
 
 	fread(&bfh, sizeof(bfh), 1, fp);
 	fread(&bih, sizeof(bih), 1, fp);
-	
-	for (int i = 0; i<bih.biheight; i++)
+
+	bg_width = bih.biwidth;
+	bg_height = bih.biheight;
+
+	// 배경화면 비트맵 정보 메모리 동적할당
+	color = (COLORREF**)malloc(sizeof(COLORREF*) * bg_width);
+	for (int i = 0; i < bg_width; i++)
 	{
-		for (int j = 0; j<bih.biwidth; j++)
-		{
-			fread(&rgb, 4, 1, fp);
-			SetPixel(hdc, j , bih.biheight - i + start_y + 30, RGB(rgb.red, rgb.green, rgb.blue));
-		}
+		color[i] = (COLORREF*)malloc(sizeof(COLORREF) * bg_height);
 	}
 
+	for (int i = 0; i<bg_height; i++)
+	{
+		for (int j = 0; j<bg_width; j++)
+		{ 
+			fread(&rgb, 4, 1, fp);
+			SetPixel(hdc, j , bg_height - i -  1, RGB(rgb.red, rgb.green, rgb.blue));
+			// 배경화면의 RGB 정보를 좌표에 따라 저장.
+			color[j][bg_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+		}
+	}
 	ReleaseDC(NULL, hdc);
 	fclose(fp);
 }
@@ -225,13 +248,13 @@ void DrawPlayer(int x, int y)
 	player_width = bih.biwidth;
 	player_height = bih.biheight;
 
-	for (int i = 0; i<bih.biheight; i++)
+	for (int i = 0; i<player_height; i++)
 	{
-		for (int j = 0; j<bih.biwidth; j++)
+		for (int j = 0; j<player_width; j++)
 		{
 			fread(&rgb, 4, 1, fp);
 			if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
-				SetPixel(hdc, j + x, bih.biheight - i + y, RGB(rgb.red, rgb.green, rgb.blue));
+				SetPixel(hdc, j + x, player_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
 			}
 		}
 	}
@@ -263,23 +286,16 @@ void ErasePlayer(int x, int y)
 	HDC hdc;
 	hdc = GetDC(NULL);
 
-	//FILE *fp;
-	//fp = fopen("background.bmp", "rb");
-
-	//fread(&bfh, sizeof(bfh), 1, fp);
-	//fread(&bih, sizeof(bih), 1, fp);
-
 	for (int i = 0; i<player_height; i++)
 	{
 		for (int j = 0; j<player_width; j++)
 		{		
-			//fread(&rgb, 4, 1, fp);
-			SetPixel(hdc, x + i, y + j, RGB(255, 255, 255)/*RGB(rgb.red, rgb.green, rgb.blue)*/);
+			SetPixel(hdc, j + x, player_height - i - 1 + y, color[j + x][player_height - i - 1 + y]);
 		}
 
 	}
+	
 	ReleaseDC(NULL, hdc);
-	//fclose(fp);
 }
 void DrawStone(int x, int y)
 {
@@ -300,17 +316,16 @@ void DrawStone(int x, int y)
 	stone_width = bih.biwidth;
 	stone_height = bih.biheight;
 
-	for (int i = 0; i<bih.biheight; i++)
+	for (int i = 0; i<stone_height; i++)
 	{
-		for (int j = 0; j<bih.biwidth; j++)
+		for (int j = 0; j<stone_width; j++)
 		{
 			fread(&rgb, 4, 1, fp);
 			if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
-				SetPixel(hdc, j + x, bih.biheight - i + y, RGB(rgb.red, rgb.green, rgb.blue));
+				SetPixel(hdc, j + x, stone_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
 			}
 		}
 	}
-
 	ReleaseDC(NULL, hdc);
 	fclose(fp);
 }
@@ -344,24 +359,14 @@ void EraseStone(int x, int y)
 {
 	HDC hdc;
 	hdc = GetDC(NULL);
-
-	//FILE *fp;
-	//fp = fopen("background.bmp", "rb");
-
-	//fread(&bfh, sizeof(bfh), 1, fp);
-	//fread(&bih, sizeof(bih), 1, fp);
-
-	for (int i = 0; i<stone_height + 2; i++)
+	for (int i = 0; i < stone_height; i++)
 	{
-		for (int j = 0; j<stone_width + 2; j++)
+		for (int j = 0; j < stone_width + 2; j++)
 		{
-			//fread(&rgb, 4, 1, fp);
-			SetPixel(hdc, x + i, y + j, RGB(255, 255, 255)/*RGB(rgb.red, rgb.green, rgb.blue)*/);
+			SetPixel(hdc, j + x, stone_height - i - 1 + y, color[j + x][stone_height - i - 1 + y]);
 		}
-
 	}
 	ReleaseDC(NULL, hdc);
-	//fclose(fp);
 }
 void CrashStone()
 {
@@ -396,13 +401,13 @@ void DrawItem(int x, int y)
 	item_width = bih.biwidth;
 	item_height = bih.biheight;
 
-	for (int i = 0; i<bih.biheight; i++)
+	for (int i = 0; i<item_height; i++)
 	{
-		for (int j = 0; j<bih.biwidth; j++)
+		for (int j = 0; j<item_width + 2; j++)
 		{
 			fread(&rgb, 4, 1, fp);
 			if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
-				SetPixel(hdc, j + x, bih.biheight - i + y, RGB(rgb.red, rgb.green, rgb.blue));
+				SetPixel(hdc, j + x, item_height - i + y, RGB(rgb.red, rgb.green, rgb.blue));
 			}
 		}
 	}
@@ -436,14 +441,11 @@ void EraseItem(int x, int y)
 	HDC hdc;
 	hdc = GetDC(NULL);
 
-	
-
-	for (int i = 0; i<item_height + 2; i++)
+	for (int i = 0; i < item_height; i++)
 	{
-		for (int j = 0; j<item_width + 2; j++)
+		for (int j = 0; j < item_width + 2; j++)
 		{
-			
-			SetPixel(hdc, x + i, y + j, RGB(255, 255, 255));
+			SetPixel(hdc, j + x, item_height - i - 1 + y, color[j + x][item_height - i - 1 + y]);
 		}
 
 	}
