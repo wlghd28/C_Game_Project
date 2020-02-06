@@ -1,0 +1,894 @@
+#include <Windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <conio.h>
+#include <tchar.h>
+#include "resource.h"
+
+#pragma warning(disable : 4996)
+#pragma pack(push, 1)
+struct Bitmapfileheader
+{
+	short int bmptype;
+	int bfsize;
+	short int bfreserved1, bfreserved2;
+	int bfoffbits;
+}bfh;
+struct Bitmapinfoheader
+{
+	int bisize, biwidth, biheight;
+	short int biplanes, bibitcount;
+	int compression, sizeimage, xpelspermeter, ypelspermeter, biclrused, biclrimportant;
+}bih;
+struct Palette {
+	unsigned char blue;
+	unsigned char green;
+	unsigned char red;
+}rgb;
+#pragma pack(pop)	
+
+#define MY_FIRST_WND (TEXT("mygame"))
+#define p 112 // 일시정지
+#define P 80 // 일시정지
+// 윈도우창 크기
+const int left = 0;
+const int up = 0;
+const int width = GetSystemMetrics(SM_CXSCREEN);
+const int height = GetSystemMetrics(SM_CYSCREEN);
+
+const int start_x = 900;
+const int start_y = 862;
+const int left_end = 300;
+const int right_end = 1500;
+const int up_end = 0;
+const int down_end = 900;
+const int stone_count = 20; // 떨어지는 돌의 개수
+
+int stone_width = 0;
+int stone_height = 0;
+int player_width = 0;
+int player_height = 0;
+int item_width = 0;
+int item_height = 0;
+int bg_width = 0;
+int bg_height = 0;
+
+int score = 0; // 점수(처음 속도가 너무빨라서 점수 조절)
+int item_score = 0; // 아이템을 먹은 개수
+int level = 1; // 게임 레벨
+
+typedef struct
+{
+	int x;
+	int y;
+	int state;
+	int acceleration = 0; // 떨어지는 돌의 가속도 
+}STONE; // 떨어지는 돌
+
+typedef struct
+{
+	int x;
+	int y;
+	int state;
+	//int acceleration = 0; // 떨어지는 아이템 가속도 
+}ITEM; // 먹어야하는 아이템
+
+typedef struct
+{
+	int x;
+	int y;
+	int state; // 플레이어가 향하고 있는 방향(0 = 왼쪽, 1 = 오른쪽)
+	int motion; // 플레이어가 뛰는 모션(0과 1 두가지 모션이 있음)
+	int stop; // 플레이어가 멈춰있는 상태(0이면 멈춤 1이면 움직임)
+	int acceleration = 0; // 플레이어의 가속도
+}Player; // 플레이어
+
+COLORREF** bg_color = NULL; // 장애물과 플레이어의 잔상을 처리하기 위해 배경화면 비트맵 정보를 담아놓을 메모리.
+COLORREF** stone_color = NULL; // 장애물의 비트맵 정보를 담아놓을 메모리.
+COLORREF** item_color = NULL; // 아이템의 비트맵 정보를 담아놓을 메모리.
+							  // 플레이어의 비트맵 정보를 담아놓을 메모리.
+COLORREF** player_color = NULL;
+COLORREF** player_left1_color = NULL;
+COLORREF** player_left2_color = NULL;
+COLORREF** player_right1_color = NULL;
+COLORREF** player_right2_color = NULL;
+Player player; // 플레이어는 한명이므로 변수 하나만 선언.
+STONE* stones; // 떨어지는 돌의 메모리를 동적할당 할 포인터 변수.
+ITEM item; // 아이템은 한개씩 떨어지므로 변수 하나만 선언.
+
+
+int isKeyDown(int key); // 키보드의 입력값을 리턴하는 함수.
+void DrawTitle(); // 타이틀 문구 출력.
+void DrawBackground(); // 배경을 그리는 함수.
+void DrawPlayer(int x, int y); // 현재위치에 플레이어를 그리는 함수.
+void MovePlayer(); // 플레이어를 움직이는 함수.
+void ErasePlayer(int x, int y); // 현재위치에 있는 잔상을 지우는 함수.
+void DrawStone(int x, int y); // 현재위치에 돌을 그리는 함수.
+void DropStone(); // 위에서 돌을 떨어뜨리는 함수.
+void EraseStone(int x, int y); // 현재위치에 있는 잔상을 지우는 함수.
+void CrashStone(); // 플레이어가 돌과 충돌했을 시 게임종료.
+void DrawItem(int x, int y); // 현재위치에 아이템을 그리는 함수.
+void DropItem(); // 위에서 아이템을 떨어뜨리는 함수.
+void EraseItem(int x, int y); // 현재위치에 있는 잔상을 지우는 함수.
+void CrashItem(); // 플레이어가 아이템을 먹었을 때 개수 증가.
+void Accel(); // 가속도 처리 함수.(미끄러지는 듯한 움직임)
+void GameScore(); // 점수를 알려주는 함수.
+void NextStage(); // 다음스테이지로 넘기는 함수.
+void GameOver(); // 게임을 종료하는 함수.
+void Init(); // 게임 상태를 초기화시키는 함수.
+void FileEception(FILE* fp); // 파일 포인터 예외처리.
+void OnDestroy(HWND hWnd); // 메모리 해제
+
+void RegWindowClass();
+void MessageLoop();
+
+HWND hWnd;
+TCHAR lpOut[1024];
+
+INT APIENTRY WinMain(HINSTANCE hIns, HINSTANCE hPrev, LPSTR cmd, INT nShow)
+{
+	RegWindowClass();//윈도우 클래스 속성 설정 및 등록
+
+					 //윈도우 인스턴스 생성
+	hWnd = CreateWindow(
+		MY_FIRST_WND,//클래스 이름
+		TEXT("장애물 피하기 게임"), //캡션 명
+		WS_OVERLAPPEDWINDOW, //윈도우 스타일
+		left, up, width, height,//좌,상,폭,높이
+		0,//부모 윈도우 핸들
+		0,//메뉴 핸들
+		hIns,//인스턴스 핸들
+		0);//생성 시 인자
+
+	ShowWindow(hWnd, nShow);//윈도우 인스턴스 시각화, SW_SHOW(시각화), SW_HIDE(비시각화)       
+	MessageLoop();//메시지 루프
+
+	return 0;
+
+}
+
+LRESULT CALLBACK MyWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
+{
+
+	switch (iMessage)
+	{
+	case WM_CREATE: 
+	{
+		Init();
+		break;
+	}
+	case WM_PAINT:
+	{
+		// 윈도우 최소화, 최대화 버튼 비활성화
+		SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_MINIMIZEBOX);
+		SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_MAXIMIZEBOX);
+		// 화면출력 시작
+		DrawBackground();
+		DrawPlayer(start_x, start_y);	
+		break;
+	}
+	case WM_KEYDOWN:
+	{
+		DrawTitle();
+		// 윈도우 닫기 버튼 비활성화
+		EnableMenuItem(GetSystemMenu(hWnd, FALSE), SC_CLOSE, MF_BYCOMMAND | MF_DISABLED | MF_GRAYED);
+		while (1) {
+			GameScore();
+			Accel();
+			MovePlayer();
+			DropStone();
+			CrashStone();
+			// 레벨2로 넘어갈 경우 아이템을 추가		
+			if (level == 2) {
+			DropItem();
+			CrashItem();
+			}
+			// p, P 누를 시 일시정지.
+			if (isKeyDown(p) | isKeyDown(P)) {
+				// 윈도우 최소화, 최대화, 닫기버튼 활성화. 
+				EnableMenuItem(GetSystemMenu(hWnd, FALSE), SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
+				break;
+			}
+		}
+		break;
+	}
+	case WM_DESTROY: OnDestroy(hWnd); return 0;
+	}
+	return DefWindowProc(hWnd, iMessage, wParam, lParam);
+}
+void RegWindowClass()
+{
+	WNDCLASS wndclass = { 0 };
+	wndclass.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);//흰색 브러쉬 핸들
+	wndclass.hCursor = LoadCursor(0, IDC_ARROW); //마우스 커서 핸들
+	wndclass.hIcon = LoadIcon(0, IDI_APPLICATION); //아이콘 핸들
+	wndclass.hInstance = GetModuleHandle(0);//자신 모듈의 인스턴스 핸들
+	wndclass.lpfnWndProc = MyWndProc;//윈도우 콜백 프로시저
+	wndclass.lpszClassName = MY_FIRST_WND;//클래스 이름 - 클래스 구분자
+	wndclass.style = CS_DBLCLKS;//클래스 종류
+
+	RegisterClass(&wndclass);
+}
+void MessageLoop()
+{
+	MSG Message;
+	while (GetMessage(&Message, 0, 0, 0))//메시지 루프에서 메시지 꺼냄(WM_QUIT이면 FALSE 반환)
+	{
+		TranslateMessage(&Message);//WM_KEYDOWN이고 키가 문자 키일 때 WM_CHAR 발생
+		DispatchMessage(&Message);//콜백 프로시저가 수행할 수 있게 디스패치 시킴
+	}
+}
+// 키 입력시 값 반환하는 함수.
+int isKeyDown(int key)
+{
+	return ((GetAsyncKeyState(key) & 0x8000) != 0);
+}
+void DrawTitle()
+{
+	MessageBox(NULL, _T("Please Enter OK button to Start\n◁  ▷ : Left / Right"), _T("장애물 피하기 게임"), MB_OK);
+}
+void DrawBackground()
+{
+	HDC hdc;
+	hdc = GetDC(hWnd);
+	FILE * fp;
+	fp = fopen(/*"ice_ground.bmp"*/"background2.bmp", "rb");
+
+	if (fp == NULL)
+	{
+		printf("file not found");
+		getchar();
+		exit(0);
+	}
+
+	fread(&bfh, sizeof(bfh), 1, fp);
+	fread(&bih, sizeof(bih), 1, fp);
+
+	bg_width = bih.biwidth;
+	bg_height = bih.biheight;
+
+	// 배경화면 비트맵 정보 메모리 동적할당
+	bg_color = (COLORREF**)malloc(sizeof(COLORREF*) * bg_width);
+	for (int i = 0; i < bg_width; i++)
+	{
+		bg_color[i] = (COLORREF*)malloc(sizeof(COLORREF) * bg_height);
+	}
+
+	for (int i = 0; i<bg_height; i++)
+	{
+		for (int j = 0; j<bg_width; j++)
+		{
+			fread(&rgb, 4, 1, fp);
+			SetPixel(hdc, j, bg_height - i - 1, RGB(rgb.red, rgb.green, rgb.blue));
+			// 배경화면의 RGB 정보를 좌표에 따라 저장.
+			bg_color[j][bg_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+		}
+	}
+	ReleaseDC(hWnd, hdc);
+	fclose(fp);
+
+}
+void DrawPlayer(int x, int y)
+{
+	HDC hdc;
+	hdc = GetDC(hWnd);
+	if (player.acceleration == 0) {
+		if (player_color == NULL) {
+			FILE * fp;
+			fp = fopen("player.bmp", "rb");
+			FileEception(fp);
+			fread(&bfh, sizeof(bfh), 1, fp);
+			fread(&bih, sizeof(bih), 1, fp);
+
+			player_width = bih.biwidth;
+			player_height = bih.biheight;
+
+			player_color = (COLORREF**)malloc(sizeof(COLORREF*) * player_width);
+			for (int i = 0; i < player_width; i++)
+			{
+				player_color[i] = (COLORREF*)malloc(sizeof(COLORREF) * player_height);
+			}
+
+			for (int i = 0; i<player_height; i++)
+			{
+				for (int j = 0; j<player_width; j++)
+				{
+					fread(&rgb, 4, 1, fp);
+					if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
+						SetPixel(hdc, j + x, player_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
+						player_color[j][player_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+					}
+					else
+					{
+						player_color[j][player_height - i - 1] = NULL;
+					}
+				}
+			}
+			fclose(fp);
+		}
+		else
+		{
+			for (int i = 0; i < player_height; i++)
+			{
+				for (int j = 0; j < player_width; j++)
+				{
+					if (player_color[j][player_height - i - 1] != NULL) {
+						SetPixel(hdc, j + x, player_height - i - 1 + y, player_color[j][player_height - i - 1]);
+					}
+				}
+			}
+		}
+	}
+	else {
+		if (player.motion % 2 == 0) {
+			if (player.state == 0) {
+				if (player_left1_color == NULL) {
+					FILE * fp;
+					fp = fopen("player_left1.bmp", "rb");
+					FileEception(fp);
+					fread(&bfh, sizeof(bfh), 1, fp);
+					fread(&bih, sizeof(bih), 1, fp);
+
+					player_width = bih.biwidth;
+					player_height = bih.biheight;
+
+					player_left1_color = (COLORREF**)malloc(sizeof(COLORREF*) * player_width);
+					for (int i = 0; i < player_width; i++)
+					{
+						player_left1_color[i] = (COLORREF*)malloc(sizeof(COLORREF) * player_height);
+					}
+
+					for (int i = 0; i<player_height; i++)
+					{
+						for (int j = 0; j<player_width; j++)
+						{
+							fread(&rgb, 4, 1, fp);
+							if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
+								SetPixel(hdc, j + x, player_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
+								player_left1_color[j][player_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+							}
+							else
+							{
+								player_left1_color[j][player_height - i - 1] = NULL;
+							}
+						}
+					}
+					fclose(fp);
+				}
+				else
+				{
+					for (int i = 0; i < player_height; i++)
+					{
+						for (int j = 0; j < player_width; j++)
+						{
+							if (player_left1_color[j][player_height - i - 1] != NULL) {
+								SetPixel(hdc, j + x, player_height - i - 1 + y, player_left1_color[j][player_height - i - 1]);
+							}
+						}
+					}
+				}
+			}
+			if (player.state == 1) {
+				if (player_right1_color == NULL) {
+					FILE * fp;
+					fp = fopen("player_right1.bmp", "rb");
+					FileEception(fp);
+					fread(&bfh, sizeof(bfh), 1, fp);
+					fread(&bih, sizeof(bih), 1, fp);
+
+					player_width = bih.biwidth;
+					player_height = bih.biheight;
+
+					player_right1_color = (COLORREF**)malloc(sizeof(COLORREF*) * player_width);
+					for (int i = 0; i < player_width; i++)
+					{
+						player_right1_color[i] = (COLORREF*)malloc(sizeof(COLORREF) * player_height);
+					}
+
+					for (int i = 0; i<player_height; i++)
+					{
+						for (int j = 0; j<player_width; j++)
+						{
+							fread(&rgb, 4, 1, fp);
+							if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
+								SetPixel(hdc, j + x, player_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
+								player_right1_color[j][player_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+							}
+							else
+							{
+								player_right1_color[j][player_height - i - 1] = NULL;
+							}
+						}
+					}
+					fclose(fp);
+				}
+				else
+				{
+					for (int i = 0; i < player_height; i++)
+					{
+						for (int j = 0; j < player_width; j++)
+						{
+							if (player_right1_color[j][player_height - i - 1] != NULL) {
+								SetPixel(hdc, j + x, player_height - i - 1 + y, player_right1_color[j][player_height - i - 1]);
+							}
+						}
+					}
+				}
+			}
+		}
+		if (player.motion % 2 == 1) {
+			if (player.state == 0) {
+				if (player_left2_color == NULL) {
+					FILE * fp;
+					fp = fopen("player_left2.bmp", "rb");
+					FileEception(fp);
+					fread(&bfh, sizeof(bfh), 1, fp);
+					fread(&bih, sizeof(bih), 1, fp);
+
+					player_width = bih.biwidth;
+					player_height = bih.biheight;
+
+					player_left2_color = (COLORREF**)malloc(sizeof(COLORREF*) * player_width);
+					for (int i = 0; i < player_width; i++)
+					{
+						player_left2_color[i] = (COLORREF*)malloc(sizeof(COLORREF) * player_height);
+					}
+
+					for (int i = 0; i<player_height; i++)
+					{
+						for (int j = 0; j<player_width; j++)
+						{
+							fread(&rgb, 4, 1, fp);
+							if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
+								SetPixel(hdc, j + x, player_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
+								player_left2_color[j][player_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+							}
+							else
+							{
+								player_left2_color[j][player_height - i - 1] = NULL;
+							}
+						}
+					}
+					fclose(fp);
+				}
+				else
+				{
+					for (int i = 0; i < player_height; i++)
+					{
+						for (int j = 0; j < player_width; j++)
+						{
+							if (player_left2_color[j][player_height - i - 1] != NULL) {
+								SetPixel(hdc, j + x, player_height - i - 1 + y, player_left2_color[j][player_height - i - 1]);
+							}
+						}
+					}
+				}
+			}
+			if (player.state == 1) {
+				if (player_right2_color == NULL) {
+					FILE * fp;
+					fp = fopen("player_right2.bmp", "rb");
+					FileEception(fp);
+					fread(&bfh, sizeof(bfh), 1, fp);
+					fread(&bih, sizeof(bih), 1, fp);
+
+					player_width = bih.biwidth;
+					player_height = bih.biheight;
+
+					player_right2_color = (COLORREF**)malloc(sizeof(COLORREF*) * player_width);
+					for (int i = 0; i < player_width; i++)
+					{
+						player_right2_color[i] = (COLORREF*)malloc(sizeof(COLORREF) * player_height);
+					}
+
+					for (int i = 0; i<player_height; i++)
+					{
+						for (int j = 0; j<player_width; j++)
+						{
+							fread(&rgb, 4, 1, fp);
+							if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
+								SetPixel(hdc, j + x, player_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
+								player_right2_color[j][player_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+							}
+							else
+							{
+								player_right2_color[j][player_height - i - 1] = NULL;
+							}
+						}
+					}
+					fclose(fp);
+				}
+				else
+				{
+					for (int i = 0; i < player_height; i++)
+					{
+						for (int j = 0; j < player_width; j++)
+						{
+							if (player_right2_color[j][player_height - i - 1] != NULL) {
+								SetPixel(hdc, j + x, player_height - i - 1 + y, player_right2_color[j][player_height - i - 1]);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	ReleaseDC(hWnd, hdc);
+}
+void Init()
+{
+	stones = (STONE*)malloc(sizeof(STONE) * stone_count); // 떨어지는 돌을 메모리 할당
+														  // 플레이어의 좌표위치 및 상태 초기화.
+	player.x = start_x;
+	player.y = start_y;
+	player.motion = 0;
+	player.stop = 0;
+	player.acceleration = 0;
+	// 돌들의 상태와 좌표위치 초기화.
+	for (int i = 0; i < stone_count; i++) {
+		stones[i].state = FALSE;
+		stones[i].x = left_end + 60 * i;
+		stones[i].y = 20;
+		stones[i].acceleration = 0;
+	}
+	// 아이템 y좌표 초기화.
+	item.y = 0;
+}
+void OnDestroy(HWND hWnd)
+
+{
+	// 장애물의 정보를 저장해놓은 메모리 해제
+	free(stones);
+	// 배경화면의 비트맵 정보를 저장해놓은 메모리 해제
+	for (int i = 0; i < bg_width; i++)
+	{
+		free(bg_color[i]);
+	}
+	free(bg_color);
+	for (int i = 0; i < stone_width; i++)
+	{
+		free(stone_color[i]);
+	}
+	free(stone_color);
+	for (int i = 0; i < item_width; i++)
+	{
+		free(item_color[i]);
+	}
+	free(item_color);
+	for (int i = 0; i < player_width; i++)
+	{
+		free(player_color[i]);
+	}
+	free(player_color);
+	for (int i = 0; i < player_width; i++)
+	{
+		free(player_left1_color[i]);
+	}
+	free(player_left1_color);
+	for (int i = 0; i < player_width; i++)
+	{
+		free(player_left2_color[i]);
+	}
+	free(player_left2_color);
+	for (int i = 0; i < player_width; i++)
+	{
+		free(player_right1_color[i]);
+	}
+	free(player_right1_color);
+	for (int i = 0; i < player_width; i++)
+	{
+		free(player_right2_color[i]);
+	}
+	free(player_right2_color);
+	PostQuitMessage(0);//메시지 큐에 WM_QUIT 메시지를 붙임
+
+}
+void FileEception(FILE* fp)
+{
+	if (fp == NULL)
+	{
+		printf("file not found");
+		getchar();
+		exit(0);
+	}
+}
+void MovePlayer()
+{
+	if (player.stop == 1) {
+		ErasePlayer(player.x, player.y);
+		player.x += player.acceleration;
+		if (player.x <= left_end) {
+			player.x = left_end + 1;
+			player.acceleration = 0;
+		}
+		if (player.x >= right_end) {
+			player.x = right_end - 1;
+			player.acceleration = 0;
+		}
+		DrawPlayer(player.x, player.y);
+		if (player.acceleration == 0) {
+			player.stop = 0;
+		}
+	}
+}
+void ErasePlayer(int x, int y)
+{
+	HDC hdc;
+	hdc = GetDC(hWnd);
+
+	for (int i = 0; i<player_height; i++)
+	{
+		for (int j = 0; j<player_width; j++)
+		{
+			SetPixel(hdc, j + x, player_height - i - 1 + y, bg_color[j + x][player_height - i - 1 + y]);
+		}
+
+	}
+
+	ReleaseDC(hWnd, hdc);
+}
+void DrawStone(int x, int y)
+{
+	HDC hdc;
+	hdc = GetDC(hWnd);
+	if (stone_color == NULL) {
+		FILE * fp = NULL;
+		fp = fopen("stone.bmp", "rb");
+		FileEception(fp);
+		fread(&bfh, sizeof(bfh), 1, fp);
+		fread(&bih, sizeof(bih), 1, fp);
+
+		stone_width = bih.biwidth;
+		stone_height = bih.biheight;
+
+		stone_color = (COLORREF**)malloc(sizeof(COLORREF*) * stone_width);
+		for (int i = 0; i < stone_width; i++)
+		{
+			stone_color[i] = (COLORREF*)malloc(sizeof(COLORREF) * stone_height);
+		}
+
+		for (int i = 0; i<stone_height; i++)
+		{
+			for (int j = 0; j<stone_width; j++)
+			{
+				fread(&rgb, 4, 1, fp);
+				if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
+					SetPixel(hdc, j + x, stone_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
+					stone_color[j][stone_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+				}
+				else {
+					stone_color[j][stone_height - i - 1] = NULL;
+				}
+			}
+		}
+		fclose(fp);
+	}
+	else {
+		for (int i = 0; i < stone_height; i++)
+		{
+			for (int j = 0; j < stone_width; j++)
+			{
+				if (stone_color[j][stone_height - i - 1] != NULL) {
+					SetPixel(hdc, j + x, stone_height - i - 1 + y, stone_color[j][stone_height - i - 1]);
+				}
+			}
+		}
+	}
+	ReleaseDC(hWnd, hdc);
+}
+void DropStone()
+{
+	int stoneindex = rand() % stone_count;
+	stones[stoneindex].state = TRUE;
+
+	for (int i = 0; i < stone_count; i++) {
+		// 돌의상태가 TRUE 일 경우
+		if (stones[i].state) {
+			EraseStone(stones[i].x, stones[i].y); // 현재 위치의 돌을 지운다
+			stones[i].y += stones[i].acceleration; // 돌의 위치 변경
+			stones[i].acceleration += 1; // 돌의 가속도 가속
+										 // 돌이 바닥까지 떨어졌을 경우 돌 상태 초기화
+			if (stones[i].y >= start_y) {
+				score += 100;
+				stones[i].state = FALSE;
+				stones[i].acceleration = 0;
+				stones[i].y = 0;
+			}
+			// 아닌 경우 다음 위치에 돌을 그린다
+			else
+			{
+				DrawStone(stones[i].x, stones[i].y);
+			}
+		}
+	}
+}
+void EraseStone(int x, int y)
+{
+	HDC hdc;
+	hdc = GetDC(hWnd);
+	for (int i = 0; i < stone_height; i++)
+	{
+		for (int j = 0; j < stone_width + 2; j++)
+		{
+			SetPixel(hdc, j + x, stone_height - i - 1 + y, bg_color[j + x][stone_height - i - 1 + y]);
+		}
+	}
+	ReleaseDC(hWnd, hdc);
+}
+
+void CrashStone()
+{
+	for (int i = 0; i < stone_count; i++) {
+		if (stones[i].state) {
+			if ((stones[i].y >= player.y - 20) && (stones[i].x >= player.x && stones[i].x <= player.x + 30))
+			{
+				if (score >= 0)
+					GameOver();
+			}
+		}
+	}
+}
+void DrawItem(int x, int y)
+{
+	HDC hdc;
+	hdc = GetDC(hWnd);
+	if (item_color == NULL) {
+		FILE * fp = NULL;
+		fp = fopen("item.bmp", "rb");
+		FileEception(fp);
+		fread(&bfh, sizeof(bfh), 1, fp);
+		fread(&bih, sizeof(bih), 1, fp);
+
+		item_width = bih.biwidth;
+		item_height = bih.biheight;
+
+		item_color = (COLORREF**)malloc(sizeof(COLORREF*) * item_width);
+		for (int i = 0; i < item_width; i++)
+		{
+			item_color[i] = (COLORREF*)malloc(sizeof(COLORREF) * item_height);
+		}
+
+		for (int i = 0; i<item_height; i++)
+		{
+			for (int j = 0; j<item_width; j++)
+			{
+				fread(&rgb, 4, 1, fp);
+				if (!((rgb.red == 255) && (rgb.blue == 255) && (rgb.green == 255))) {
+					SetPixel(hdc, j + x, item_height - i - 1 + y, RGB(rgb.red, rgb.green, rgb.blue));
+					item_color[j][item_height - i - 1] = RGB(rgb.red, rgb.green, rgb.blue);
+				}
+				else
+				{
+					item_color[j][item_height - i - 1] = NULL;
+				}
+			}
+		}
+		fclose(fp);
+	}
+	else {
+		for (int i = 0; i < item_height; i++)
+		{
+			for (int j = 0; j < item_width; j++)
+			{
+				if (item_color[j][item_height - i - 1] != NULL) {
+					SetPixel(hdc, j + x, item_height - i - 1 + y, item_color[j][item_height - i - 1]);
+				}
+			}
+		}
+	}
+	ReleaseDC(hWnd, hdc);
+}
+void DropItem()
+{
+	if (!item.state) {
+		int itemindex = rand() % (stone_count - 1);
+		item.state = TRUE;
+		item.x = left_end + 30 + 60 * itemindex;
+	}
+	if (item.state) {
+		EraseItem(item.x, item.y); // 현재 위치의 아이템을 지운다
+		item.y += 6; // 아이템 위치 변경
+					 // 아이템이 바닥까지 떨어졌을 경우 게임 오버
+		if (item.y >= start_y + 30) {
+			GameOver();
+		}
+		// 아닌 경우 다음 위치에 아이템을 그린다
+		else
+		{
+			DrawItem(item.x, item.y);
+		}
+	}
+}
+void EraseItem(int x, int y)
+{
+	HDC hdc;
+	hdc = GetDC(hWnd);
+
+	for (int i = 0; i < item_height; i++)
+	{
+		for (int j = 0; j < item_width + 2; j++)
+		{
+			SetPixel(hdc, j + x, item_height - i - 1 + y, bg_color[j + x][item_height - i - 1 + y]);
+		}
+
+	}
+	ReleaseDC(hWnd, hdc);
+
+}
+void CrashItem()
+{
+	if (item.state) {
+		if ((item.y >= player.y - 20) && (item.x >= player.x && item.x <= player.x + 30))
+		{
+			EraseItem(item.x, item.y);
+			item_score++;
+			item.y = 20;
+			item.state = FALSE;
+		}
+	}
+}
+void Accel()
+{
+	if (player.acceleration < 24 && player.acceleration >(-1) * 24) {
+		if (isKeyDown(VK_RIGHT)) {
+			player.acceleration += 2;
+			player.state = 1;
+			player.stop = 1;
+			player.motion++;
+			return;
+		}
+		if (isKeyDown(VK_LEFT)) {
+			player.acceleration -= 2;
+			player.state = 0;
+			player.stop = 1;
+			player.motion++;
+			return;
+		}
+	}
+	if (player.acceleration < 0) {
+		player.acceleration += 1;
+		player.motion++;
+		return;
+	}
+	if (player.acceleration > 0) {
+		player.acceleration -= 1;
+		player.motion++;
+		return;
+	}
+
+}
+void GameScore()
+{
+	HDC hdc;
+	hdc = GetDC(hWnd);
+
+	LPCTSTR str1 = TEXT("LEVEL : %d");
+	LPCTSTR str2 = TEXT("SCORE : %6d");
+	LPCTSTR str3 = TEXT("ITEM SCORE : %6d");
+	wsprintf(lpOut, str1, level);
+	TextOut(hdc, 300, 10, lpOut, lstrlen(lpOut));
+	wsprintf(lpOut, str2, score);
+	TextOut(hdc, 900, 10, lpOut, lstrlen(lpOut));
+	wsprintf(lpOut, str3, item_score);
+	TextOut(hdc, 1500, 10, lpOut, lstrlen(lpOut));
+
+	ReleaseDC(hWnd, hdc);
+
+	if (score == 10000)
+		NextStage();
+	if (score == 50000)
+		GameOver();
+}
+void NextStage()
+{
+	score += 100;
+	level++;
+	MessageBox(NULL, _T("\tStage Celar!!\nPress OK button to NextStage"), _T("Stage Clear"), MB_OK);
+}
+void GameOver()
+{
+	MessageBox(NULL, _T("GameOver!!"), _T("GameOver"), MB_OK);
+	exit(0);
+}
