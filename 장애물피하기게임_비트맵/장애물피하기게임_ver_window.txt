@@ -184,7 +184,7 @@ LRESULT CALLBACK MyWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lPara
 			CrashItem();
 		}
 		// WM_KEYDOWN에 진입하기 위해 키 이벤트 발생.
-		keybd_event(VK_RETURN, 0, 0, 0);
+		keybd_event(VK_UP, 0, 0, 0);
 		break;
 	}
 	case WM_DESTROY: OnDestroy(hWnd); return 0;
