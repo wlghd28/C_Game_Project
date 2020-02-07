@@ -170,27 +170,21 @@ LRESULT CALLBACK MyWndProc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lPara
 	}
 	case WM_KEYDOWN:
 	{
-		DrawTitle();
+		//DrawTitle();
 		// 윈도우 닫기 버튼 비활성화
-		EnableMenuItem(GetSystemMenu(hWnd, FALSE), SC_CLOSE, MF_BYCOMMAND | MF_DISABLED | MF_GRAYED);
-		while (1) {
-			GameScore();
-			Accel();
-			MovePlayer();
-			DropStone();
-			CrashStone();
-			// 레벨2로 넘어갈 경우 아이템을 추가		
-			if (level == 2) {
+		GameScore();
+		Accel();
+		MovePlayer();
+		DropStone();
+		CrashStone();
+		// 레벨2로 넘어갈 경우 아이템을 추가		
+		if (level == 2)
+		{
 			DropItem();
 			CrashItem();
-			}
-			// p, P 누를 시 일시정지.
-			if (isKeyDown(p) | isKeyDown(P)) {
-				// 윈도우 최소화, 최대화, 닫기버튼 활성화. 
-				EnableMenuItem(GetSystemMenu(hWnd, FALSE), SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
-				break;
-			}
 		}
+		// WM_KEYDOWN에 진입하기 위해 키 이벤트 발생.
+		keybd_event(VK_RETURN, 0, 0, 0);
 		break;
 	}
 	case WM_DESTROY: OnDestroy(hWnd); return 0;
