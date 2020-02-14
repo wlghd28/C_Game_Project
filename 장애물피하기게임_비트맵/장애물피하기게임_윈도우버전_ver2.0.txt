@@ -372,7 +372,7 @@ void CrashStone()
 {
 	for (int i = 0; i < stone_count; i++) {
 		if (stones[i].state) {
-			if ((stones[i].y >= player.y - 20) && (stones[i].x >= player.x && stones[i].x <= player.x + 30))
+			if ((stones[i].y >= player.y - player_height) && (stones[i].x >= player.x && stones[i].x <= player.x + player_width))
 			{
 				if (score >= 0)
 					GameOver();
@@ -421,7 +421,7 @@ void EraseItem(int x, int y)
 void CrashItem()
 {
 	if (item.state) {
-		if ((item.y >= player.y - 20) && (item.x >= player.x && item.x <= player.x + 30))
+		if ((item.y >= player.y - player_height) && (item.x >= player.x && item.x <= player.x + player_width))
 		{
 			EraseItem(item.x, item.y);
 			item_score++;
